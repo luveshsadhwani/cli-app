@@ -29,9 +29,96 @@ const commandAliasMap = {
   "--rollback": "--undo",
   "--purge": "--clear",
 };
+const existingLongFormCommands = [
+  "--help",
+  "--version",
+  "--set",
+  "--reset",
+  "--restore",
+  "--undo",
+  "--history",
+  "--clear",
+  "--stats",
+  ...Object.keys(commandAliasMap),
+];
 
 const args = process.argv.slice(2);
+const commands = getCommands(args);
+commands.forEach((c) => {
+  const existingCommand = existingLongFormCommands.includes(c);
+  if (!existingCommand) {
+    let highestSimilarity = 0;
+    let suggestedCommand = "";
+    existingLongFormCommands.forEach((eCommand) => {
+      const similarity =
+        1 -
+        levenshteinDistance(eCommand, c) / Math.max(eCommand.length, c.length);
+      if (similarity > highestSimilarity) {
+        highestSimilarity = similarity;
+        suggestedCommand = eCommand;
+      }
+    });
+
+    if (highestSimilarity > 0.6 && suggestedCommand !== "") {
+      console.error(
+        `'${c}' is not a valid command.\nDid you mean '${suggestedCommand}'?`
+      );
+      logRun(
+        `INPUT=${commands.join(
+          ","
+        )}, SUGGESTED_COMMAND=${suggestedCommand}, SIMILARITY_SCORE=${highestSimilarity}`,
+        {
+          isError: true,
+        }
+      );
+      process.exit(1);
+    }
+
+    if (highestSimilarity < 0.6) {
+      console.error(
+        `'${c}' is not a valid command.\nUse --help to see available commands.`
+      );
+
+      logRun(
+        `INPUT=${commands.join(
+          ","
+        )}, SUGGESTED_COMMAND=NULL, SIMILARITY_SCORE=${highestSimilarity}`,
+        {
+          isError: true,
+        }
+      );
+      process.exit(1);
+    }
+  }
+});
+
 const normalizedArgs = args.map((arg) => commandAliasMap[arg] || arg);
+
+function getCommands(a) {
+  const argsRegex = new RegExp(/^--[a-z]+|^-[a-z]/i);
+  return a.filter((el) => argsRegex.test(el));
+}
+
+function levenshteinDistance(a, b) {
+  const matrix = [];
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 1; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      const indicator = a[j - 1] === b[i - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1, // deletion
+        matrix[i][j - 1] + 1, // insertion
+        matrix[i - 1][j - 1] + indicator // substitution
+      );
+    }
+  }
+  return matrix[b.length][a.length];
+}
 
 const helpFlag = normalizedArgs.find((arg) => arg === "--help" || arg === "-h");
 const versionFlag = normalizedArgs.find(
